@@ -72,6 +72,7 @@ _Note: This service uses a Cache-First pattern. Hitting a GET endpoint for the f
 | Method | Endpoint | JSON Payload / Notes |
 | :--- | :--- | :--- |
 | `GET` | `/playlist/{playlist_id}` | Provide a YouTube Playlist ID. The backend will instantly import all videos to the DB. |
+| `GET` | `/playlist/search?q={query}` | Search for YouTube playlists by query string. Returns matching playlists with metadata. |
 | `GET` | `/playlist/all` | Returns a paginated list of all imported courses. |
 | `GET` | `/video/metadata/{video_id}` | Provide a single YouTube Video ID. Returns the title, duration, and **a ready-to-use HTML iframe embed code**. |
 | `GET` | `/video/next/{video_id}` | Returns the chronological next video in the sequence. |

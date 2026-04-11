@@ -25,6 +25,11 @@ class PlaylistResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class PlaylistSearchResultResponse(PlaylistResponse):
+    relevance_score: float
+    matched_fields: List[str] = Field(default_factory=list)
+
+
 class VideoMetadataResponse(BaseModel):
     current: Optional[dict]
     next: Optional[dict]

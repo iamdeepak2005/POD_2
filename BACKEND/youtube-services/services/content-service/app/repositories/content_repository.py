@@ -2,6 +2,8 @@ from typing import Dict, List, Optional
 import logging
 from datetime import datetime, timezone
 
+from sqlalchemy import or_
+from sqlalchemy.orm import selectinload
 from sqlalchemy.orm import Session
 
 from app.models.playlist import Playlist
@@ -89,3 +91,32 @@ class ContentRepository:
 
     def count_playlists(self) -> int:
         return self.db.query(Playlist).count()
+
+    def search_playlists(self, query: str) -> List[Playlist]:
+        cleaned_query = query.strip().lower()
+        if not cleaned_query:
+            return []
+
+        tokens = [token for token in cleaned_query.split() if token]
+        filters = [
+            Playlist.title.ilike(f"%{cleaned_query}%"),
+            Playlist.description.ilike(f"%{cleaned_query}%"),
+        ]
+
+        for token in tokens:
+            token_pattern = f"%{token}%"
+            filters.extend(
+                [
+                    Playlist.title.ilike(token_pattern),
+                    Playlist.description.ilike(token_pattern),
+                    Playlist.videos.any(Video.title.ilike(token_pattern)),
+                ]
+            )
+
+        return (
+            self.db.query(Playlist)
+            .options(selectinload(Playlist.videos))
+            .filter(or_(*filters))
+            .distinct()
+            .all()
+        )

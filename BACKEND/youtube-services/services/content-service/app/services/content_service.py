@@ -1,5 +1,6 @@
 from typing import Dict, List, Optional, Tuple
 import logging
+import re
 
 from sqlalchemy.orm import Session
 
@@ -72,3 +73,87 @@ class ContentService:
         playlists = self.repo.get_all_playlists(offset=offset, limit=limit)
         total = self.repo.count_playlists()
         return playlists, total
+
+    def search_playlists(
+        self, query: str, offset: int = 0, limit: int = 20
+    ) -> Tuple[List[dict], int]:
+        playlists = self.repo.search_playlists(query)
+        scored_results = [self._build_search_result(query, playlist) for playlist in playlists]
+        scored_results.sort(
+            key=lambda item: (
+                -item["relevance_score"],
+                item["title"].lower(),
+                item["youtube_playlist_id"],
+            )
+        )
+
+        total = len(scored_results)
+        return scored_results[offset : offset + limit], total
+
+    def _build_search_result(self, query: str, playlist: Playlist) -> dict:
+        query_lower = query.strip().lower()
+        tokens = [token for token in re.split(r"\s+", query_lower) if token]
+        title = playlist.title.lower()
+        description = (playlist.description or "").lower()
+        video_titles = [video.title.lower() for video in playlist.videos]
+
+        matched_fields: list[str] = []
+        score = 0.0
+
+        def mark(field: str) -> None:
+            if field not in matched_fields:
+                matched_fields.append(field)
+
+        if query_lower and query_lower in title:
+            score += 100.0
+            mark("title")
+            if title.startswith(query_lower):
+                score += 20.0
+
+        if query_lower and query_lower in description:
+            score += 45.0
+            mark("description")
+
+        if query_lower and any(query_lower in video_title for video_title in video_titles):
+            score += 35.0
+            mark("video_title")
+
+        title_hits = 0
+        description_hits = 0
+        video_hits = 0
+
+        for token in tokens:
+            if token in title:
+                title_hits += 1
+                score += 14.0
+                mark("title")
+                if title.startswith(token):
+                    score += 4.0
+            if token in description:
+                description_hits += 1
+                score += 7.0
+                mark("description")
+            if any(token in video_title for video_title in video_titles):
+                video_hits += 1
+                score += 10.0
+                mark("video_title")
+
+        if tokens and title_hits == len(tokens):
+            score += 15.0
+        if tokens and description_hits == len(tokens):
+            score += 8.0
+        if tokens and video_hits == len(tokens):
+            score += 10.0
+
+        score += min(len(video_titles), 10) * 0.5
+
+        return {
+            "id": playlist.id,
+            "youtube_playlist_id": playlist.youtube_playlist_id,
+            "title": playlist.title,
+            "description": playlist.description,
+            "last_synced_at": playlist.last_synced_at,
+            "videos": playlist.videos,
+            "relevance_score": round(score, 2),
+            "matched_fields": matched_fields,
+        }

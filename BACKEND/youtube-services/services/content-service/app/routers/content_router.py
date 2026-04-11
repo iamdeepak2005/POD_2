@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Request, status
+from fastapi import APIRouter, Depends, Query, Request, status
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from sqlalchemy.orm import Session
@@ -6,7 +6,11 @@ from sqlalchemy.orm import Session
 from app.core.dependencies import get_db
 from app.core.pagination import PaginatedResponse, PaginationParams
 from app.controllers.content_controller import ContentController
-from app.schemas.content import PlaylistResponse, VideoMetadataResponse
+from app.schemas.content import (
+    PlaylistResponse,
+    PlaylistSearchResultResponse,
+    VideoMetadataResponse,
+)
 
 limiter = Limiter(key_func=get_remote_address)
 router = APIRouter(tags=["Content"])
@@ -16,6 +20,17 @@ router = APIRouter(tags=["Content"])
 @limiter.limit("100/minute")
 def list_playlists(request: Request, pagination: PaginationParams = Depends(), db: Session = Depends(get_db)):
     return ContentController(db).list_playlists(pagination)
+
+
+@router.get("/playlist/search", response_model=PaginatedResponse[PlaylistSearchResultResponse])
+@limiter.limit("100/minute")
+def search_playlists(
+    request: Request,
+    q: str = Query(..., min_length=1, max_length=100),
+    pagination: PaginationParams = Depends(),
+    db: Session = Depends(get_db),
+):
+    return ContentController(db).search_playlists(q, pagination)
 
 
 @router.get("/playlist/{playlist_id}", response_model=PlaylistResponse)

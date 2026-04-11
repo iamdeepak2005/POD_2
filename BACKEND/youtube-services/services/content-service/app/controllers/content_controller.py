@@ -1,10 +1,12 @@
-from typing import Tuple, List, Optional
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core.pagination import PaginatedResponse, PaginationParams
-from app.repositories.content_repository import ContentRepository
-from app.schemas.content import PlaylistResponse, VideoMetadataResponse
+from app.schemas.content import (
+    PlaylistResponse,
+    PlaylistSearchResultResponse,
+    VideoMetadataResponse,
+)
 from app.services.content_service import ContentService
 
 
@@ -48,3 +50,14 @@ class ContentController:
                 detail=f"Video '{video_id}' not found.",
             )
         return {"next": metadata["next"]}
+
+    def search_playlists(self, query: str, pagination: PaginationParams):
+        results, total = self.service.search_playlists(
+            query=query, offset=pagination.offset, limit=pagination.page_size
+        )
+        return PaginatedResponse[PlaylistSearchResultResponse].create(
+            items=results,
+            total=total,
+            page=pagination.page,
+            page_size=pagination.page_size,
+        )
