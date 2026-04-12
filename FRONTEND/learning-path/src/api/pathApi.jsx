@@ -30,3 +30,22 @@ export const getProgress = async (id, userId) => {
   );
   return res.json();
 };
+
+// ➕ CREATE PATH (ADMIN)
+export const createPath = async (payload, token) => {
+  const res = await fetch(`${BASE_URL}/paths`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`, // 🔥 REQUIRED
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    const error = await res.text();
+    throw new Error(error || "Failed to create path");
+  }
+
+  return res.json();
+};
