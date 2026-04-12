@@ -436,6 +436,98 @@ async def search_paths(
     return ranked_results
 
 
+@router.get("/paths/top", response_model=list[SearchResultResponse])
+async def get_top_paths(
+    limit: int = Query(10, ge=1, le=50),
+    session: AsyncSession = Depends(get_db_session),
+    client: httpx.AsyncClient = Depends(get_http_client),
+) -> list[SearchResultResponse]:
+    """
+    Get top learning paths based on quality scoring (completion rate, rating, views, enrollments).
+    Used for populating path suggestions in the frontend.
+    """
+    # Get all paths with their metrics
+    count_subquery = (
+        select(PathItem.path_id, func.count(PathItem.id).label("course_count"))
+        .group_by(PathItem.path_id)
+        .subquery()
+    )
+    enrollment_subquery = (
+        select(
+            PathEnrollment.path_id,
+            func.count(PathEnrollment.id).label("enrollment_count"),
+        )
+        .group_by(PathEnrollment.path_id)
+        .subquery()
+    )
+
+    query: Select[tuple[LearningPath, int]] = (
+        select(
+            LearningPath,
+            func.coalesce(count_subquery.c.course_count, 0).label("course_count"),
+            func.coalesce(
+                enrollment_subquery.c.enrollment_count, 0
+            ).label("enrollment_count"),
+        )
+        .outerjoin(count_subquery, LearningPath.path_id == count_subquery.c.path_id)
+        .outerjoin(
+            enrollment_subquery, LearningPath.path_id == enrollment_subquery.c.path_id
+        )
+    )
+
+    result = await session.execute(query)
+    matches = result.all()
+
+    if not matches:
+        return []
+
+    # Calculate normalization factors
+    max_views = max(path.total_views for path, _, _ in matches) or 1
+    max_rating = max(path.rating for path, _, _ in matches) or 1.0
+    max_enrollments = max(enrollment_count for _, _, enrollment_count in matches) or 1
+    max_completion = 100.0
+
+    ranked_results: list[SearchResultResponse] = []
+    for path, course_count, enrollment_count in matches:
+        normalized_views = _normalize_score(
+            float(log1p(path.total_views)), float(log1p(max_views))
+        )
+        normalized_enrollments = _normalize_score(
+            float(log1p(enrollment_count)), float(log1p(max_enrollments))
+        )
+        normalized_completion = _normalize_score(
+            min(max(path.average_completion_rate, 0.0), max_completion), max_completion
+        )
+        normalized_rating = _normalize_score(float(path.rating), float(max_rating))
+
+        # Quality score (same as in search but without text relevance)
+        quality_score = (
+            (0.35 * normalized_completion)
+            + (0.25 * normalized_rating)
+            + (0.20 * normalized_views)
+            + (0.20 * normalized_enrollments)
+        )
+
+        # For top paths, we use quality score as total score (text relevance = 1.0)
+        total_score = quality_score
+
+        ranked_results.append(
+            SearchResultResponse(
+                path_id=path.path_id,
+                title=path.title,
+                description=path.description,
+                editor_name=path.editor_name,
+                total_views=path.total_views,
+                average_completion_rate=path.average_completion_rate,
+                rating=path.rating,
+                total_score=round(total_score, 4),
+                course_count=course_count,
+            )
+        )
+
+    ranked_results.sort(key=lambda item: item.total_score, reverse=True)
+    return ranked_results[:limit]
+
 @router.post(
     "/paths",
     response_model=PathResponse,
